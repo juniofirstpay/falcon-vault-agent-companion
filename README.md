@@ -54,6 +54,20 @@ calls `ctx.load_cert_chain(...)`, which swaps the cert for **new** handshakes; i
 connections and the trust root are untouched. A half-written file is logged and skipped,
 never raised.
 
+Events can be missed (a render before the watch arms, a dropped inotify event), so `watch()`
+also **resyncs**: once armed, and then every `resync_interval` seconds, it reloads any cert
+whose content (sha256) differs from what it last loaded. `Watcher.watch()` does the same for
+its handlers.
+
+```python
+await rotator.watch(
+    resync_interval=300,   # seconds; None = only the post-arm sync
+    force_polling=None,    # True for volumes that don't deliver events (None = env var)
+    poll_delay_ms=300,
+)
+rotator.resync()           # also callable directly, e.g. from a health check
+```
+
 ### Adapters
 
 ```python
@@ -78,7 +92,7 @@ each service stage its reload depth. See `docs/ARCHITECTURE.md` §"Reload depth"
 
 ```bash
 pipenv install --dev
-pipenv run pytest        # 15 tests incl. a real socketpair handshake proving cert swap
+pipenv run pytest        # 32 tests incl. a real socketpair handshake proving cert swap
 ```
 
 ## Design notes (short)

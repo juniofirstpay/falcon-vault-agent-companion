@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "vault-agent-companion"
-version = "0.1.0"
+version = "0.2.0"
 description = "App-side companion for the Vault Agent sidecar: hot-reload of rendered secrets files and rotating mTLS certs. Framework-agnostic core + optional adapters."
 requires-python = ">=3.11"
 dependencies = [
