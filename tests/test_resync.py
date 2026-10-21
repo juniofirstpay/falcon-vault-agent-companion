@@ -277,3 +277,59 @@ async def test_watcher_failed_handler_retried_on_resync(monkeypatch, tmp_path):
         assert errors == [str(f.resolve())]
     finally:
         await _drain(task)
+
+
+@pytest.mark.parametrize(
+    "sync_on_arm, fires",
+    [
+        pytest.param(True, 1, id="sync-on-arm-fires-once"),
+        pytest.param(False, 0, id="default-baseline-at-on"),
+    ],
+)
+async def test_watcher_sync_on_arm_covers_render_before_on(
+    monkeypatch, tmp_path, sync_on_arm, fires
+):
+    """The services' gap: the app loads the cert, the sidecar re-renders, THEN on() runs. With
+    the default baseline the render is invisible; sync_on_arm fires the handler once."""
+    leaf = tmp_path / "leaf.pem"
+    leaf.write_text("leaf v1")  # the app's own initial load reads this
+    leaf.write_text("leaf v2")  # re-rendered before on()
+    secrets = tmp_path / "vault-secrets.yaml"
+    secrets.write_text("password: v1\n")
+    cert_calls: list[int] = []
+    secrets_calls: list[int] = []
+    w = (
+        Watcher(tmp_path)
+        .on(secrets, lambda: secrets_calls.append(1))
+        .on(leaf, lambda: cert_calls.append(1), sync_on_arm=sync_on_arm)
+    )
+
+    monkeypatch.setattr(watcher, "awatch", _deaf_awatch({}))
+    task = w.spawn(resync_interval=0.1)
+    try:
+        await asyncio.sleep(0.5)
+        assert len(cert_calls) == fires
+        assert secrets_calls == [], "sync_on_arm is per path: the secrets handler must not fire"
+    finally:
+        await _drain(task)
+
+
+async def test_watcher_sync_on_arm_retries_until_success(monkeypatch, tmp_path):
+    leaf = tmp_path / "leaf.pem"
+    leaf.write_text("leaf v1")
+    calls: list[int] = []
+
+    def flaky() -> None:
+        calls.append(1)
+        if len(calls) == 1:
+            raise RuntimeError("reload failed")
+
+    w = Watcher(tmp_path).on(leaf, flaky, sync_on_arm=True)
+    monkeypatch.setattr(watcher, "awatch", _deaf_awatch({}))
+    task = w.spawn(resync_interval=0.1)
+    try:
+        assert await _wait_for(lambda: len(calls) == 2)
+        await asyncio.sleep(0.3)
+        assert len(calls) == 2, "once it succeeds, it must not re-fire"
+    finally:
+        await _drain(task)

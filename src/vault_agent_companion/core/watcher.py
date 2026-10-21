@@ -53,6 +53,12 @@ class Watcher:
     the one last handled (baseline: when it was registered with :meth:`on`) and its handlers
     fire on a mismatch. A path only counts as handled once ALL its handlers succeeded, so a
     failed handler is retried on the next resync instead of waiting for the next render.
+
+    The ``on()`` baseline leaves one gap: a render between the app's OWN initial read and
+    ``on()``. For a rotating cert that's an outage once the in-memory leaf expires, so pass
+    ``sync_on_arm=True`` there — the path then has no baseline and its handlers fire once
+    the watch is armed. Leave it off where a needless boot-time fire is costly (a secrets
+    reload that rebuilds pools).
     """
 
     def __init__(self, root: Union[str, Path]) -> None:
@@ -61,15 +67,23 @@ class Watcher:
         # path -> fingerprint of the content its handlers last ALL succeeded on
         self._synced: Dict[str, Optional[bytes]] = {}
 
-    def on(self, path: Union[str, Path], handler: Handler) -> "Watcher":
+    def on(
+        self, path: Union[str, Path], handler: Handler, *, sync_on_arm: bool = False
+    ) -> "Watcher":
         """Register ``handler`` for changes to ``path`` (must live under the root). Chainable.
 
-        The file's current content is the resync baseline: the app is assumed to have read
-        it already, so only a later change fires the handler.
+        By default the file's current content is the resync baseline: the app is assumed to
+        have read it already, so only a later change fires the handler. With
+        ``sync_on_arm=True`` the path has no baseline, so ALL its handlers fire once after the
+        watch arms (and are retried on later resyncs until they all succeed) — use it for a
+        cert whose initial load happened before ``on()``.
         """
         key = str(Path(path).resolve())
         self._handlers.setdefault(key, []).append(handler)
-        self._synced.setdefault(key, fingerprint(key))
+        if sync_on_arm:
+            self._synced[key] = None  # never handled: the post-arm resync fires it
+        else:
+            self._synced.setdefault(key, fingerprint(key))
         return self
 
     async def _dispatch(

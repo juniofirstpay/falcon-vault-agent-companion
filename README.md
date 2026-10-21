@@ -57,7 +57,15 @@ never raised.
 Events can be missed (a render before the watch arms, a dropped inotify event), so `watch()`
 also **resyncs**: once armed, and then every `resync_interval` seconds, it reloads any cert
 whose content (sha256) differs from what it last loaded. `Watcher.watch()` does the same for
-its handlers.
+its handlers, against the content at `on()` time — so register a cert loaded **before**
+`on()` with `sync_on_arm=True`, which fires its handlers once the watch is armed:
+
+```python
+watcher = Watcher("/shared")
+watcher.on("/shared/vault-secrets.yaml", on_secrets_change)
+watcher.on("/shared/certs/auth-leaf.pem", rotator.reload, sync_on_arm=True)
+watcher.spawn(on_error=report)
+```
 
 ```python
 await rotator.watch(
@@ -92,7 +100,7 @@ each service stage its reload depth. See `docs/ARCHITECTURE.md` §"Reload depth"
 
 ```bash
 pipenv install --dev
-pipenv run pytest        # 32 tests incl. a real socketpair handshake proving cert swap
+pipenv run pytest        # 35 tests incl. a real socketpair handshake proving cert swap
 ```
 
 ## Design notes (short)

@@ -73,6 +73,11 @@ reasons above; the files are a few KB, so hashing them every few minutes is free
   every cert then (idempotent); `Watcher` baselines at `on()` time, so it only fires
   handlers whose file changed since registration (no spurious `settings.reload()` /
   pool rebuild at boot).
+- ⚠ That `on()` baseline misses a render between the app's **own** initial read and `on()`.
+  The services load the leaf in uvicorn's `config.load()` and call `on()` seconds later,
+  in app setup — so a cert path is registered with **`on(leaf, handler, sync_on_arm=True)`**:
+  no baseline, its handlers fire once after arming and retry until they all succeed. Off
+  by default because a boot-time secrets reload can rebuild pools.
 - Then every `resync_interval` seconds (default 300; `None` keeps only the post-arm sync).
 - A fingerprint is recorded only once **every** context / handler for that file succeeded,
   and is taken *before* loading — so a failed load or handler is retried next resync, and a
@@ -127,7 +132,7 @@ depth (e.g. cert seamless + providers re-init now, DB/redis reconnect later).
 
 ## Testing
 
-`pytest` (32 tests): secrets watcher fires on change (sync + async callbacks); the target
+`pytest` (35 tests): secrets watcher fires on change (sync + async callbacks); the target
 predicate ignores siblings/tempfiles deterministically; `CertRotator` reloads on change; a
 half-written PEM is swallowed; the adapters call `settings.reload()` + re-resolve and grab
 `config.ssl`; and — the headline — a **real socketpair TLS handshake** proves the served leaf
